@@ -6,6 +6,13 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
+)
+
+var (
+	clients   = make(map[net.Conn]string)
+	broadcast = make(chan string)
+	mutex     sync.Mutex
 )
 
 func main() {
@@ -17,6 +24,8 @@ func main() {
 	defer listener.Close()
 
 	fmt.Println("Servidor Go-Chat iniciado en el puerto 8080...")
+
+	go broadcaster()
 
 	for {
 		// Accept incoming connections
@@ -38,11 +47,40 @@ func handleConnection(conn net.Conn) {
 	fmt.Fprintln(conn, "Bienvenido al servidor Go-Chat!")
 
 	reader := bufio.NewReader(conn)
+
+	// Ask for nickname
+	fmt.Fprint(conn, "Ingresa tu nickname: ")
+	nickname, err := reader.ReadString('\n')
+	if err != nil {
+		log.Printf("Error al leer el nickname: %v\n", err)
+		return
+	}
+	nickname = strings.TrimSpace(nickname)
+	if nickname == "" {
+		nickname = "Anónimo"
+	}
+
+	// Register client
+	mutex.Lock()
+	clients[conn] = nickname
+	mutex.Unlock()
+
+	// Announce arrival
+	broadcast <- fmt.Sprintf("¡%s se ha unido a la sala!", nickname)
+
 	for {
 		// Read message from user
 		message, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Conexión cerrada por el usuario o error: %v\n", err)
+
+			// Unregister client
+			mutex.Lock()
+			delete(clients, conn)
+			mutex.Unlock()
+
+			// Announce departure
+			broadcast <- fmt.Sprintf("¡%s ha salido de la sala!", nickname)
 			return
 		}
 
@@ -52,7 +90,17 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
-		// Echo the message back to the same user
-		fmt.Fprintf(conn, "[Eco]: %s\n", message)
+		// Format and broadcast message
+		broadcast <- fmt.Sprintf("[%s]: %s", nickname, message)
+	}
+}
+
+func broadcaster() {
+	for msg := range broadcast {
+		mutex.Lock()
+		for client := range clients {
+			fmt.Fprintln(client, msg)
+		}
+		mutex.Unlock()
 	}
 }
