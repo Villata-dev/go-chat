@@ -95,3 +95,58 @@ func TestChatServer(t *testing.T) {
 		t.Errorf("Bob expected leave message for Alice, got: %s", msg)
 	}
 }
+
+func TestChatCommands(t *testing.T) {
+	// Connect Alice
+	connAlice, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		t.Fatalf("Failed to connect Alice: %v", err)
+	}
+	defer connAlice.Close()
+	readerAlice := bufio.NewReader(connAlice)
+
+	// Skip welcome
+	readerAlice.ReadString('\n')
+	// Send nickname
+	fmt.Fprintln(connAlice, "Alice")
+	// Alice joined
+	readerAlice.ReadString('\n')
+
+	// Connect Bob
+	connBob, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		t.Fatalf("Failed to connect Bob: %v", err)
+	}
+	defer connBob.Close()
+	readerBob := bufio.NewReader(connBob)
+
+	// Skip welcome
+	readerBob.ReadString('\n')
+	// Send nickname
+	fmt.Fprintln(connBob, "Bob")
+	// Bob joined
+	readerBob.ReadString('\n')
+	// Alice sees Bob joined
+	readerAlice.ReadString('\n')
+
+	// Test /list
+	fmt.Fprintln(connAlice, "/list")
+	msg, _ := readerAlice.ReadString('\n')
+	if !strings.Contains(msg, "Alice") || !strings.Contains(msg, "Bob") {
+		t.Errorf("Expected Alice and Bob in list, got: %s", msg)
+	}
+
+	// Test /msg
+	fmt.Fprintln(connAlice, "/msg Bob secret message")
+	msg, _ = readerBob.ReadString('\n')
+	if !strings.Contains(msg, "[Privado de Alice]: secret message") {
+		t.Errorf("Bob expected private message, got: %s", msg)
+	}
+
+	// Test /msg user not found
+	fmt.Fprintln(connAlice, "/msg Charlie hello")
+	msg, _ = readerAlice.ReadString('\n')
+	if !strings.Contains(msg, "El usuario no se encuentra en la sala") {
+		t.Errorf("Alice expected user not found message, got: %s", msg)
+	}
+}
