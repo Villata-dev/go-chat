@@ -90,8 +90,55 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
+		// Intercept commands
+		if strings.HasPrefix(message, "/") {
+			handleCommand(conn, message, nickname)
+			continue
+		}
+
 		// Format and broadcast message
 		broadcast <- fmt.Sprintf("[%s]: %s", nickname, message)
+	}
+}
+
+func handleCommand(conn net.Conn, message, nickname string) {
+	parts := strings.SplitN(message, " ", 3)
+	command := parts[0]
+
+	switch command {
+	case "/list":
+		mutex.Lock()
+		var names []string
+		for _, name := range clients {
+			names = append(names, name)
+		}
+		mutex.Unlock()
+		fmt.Fprintf(conn, "Usuarios conectados: %s\n", strings.Join(names, ", "))
+	case "/msg":
+		if len(parts) < 3 {
+			fmt.Fprintln(conn, "Uso: /msg [NombreUsuario] [Mensaje]")
+			return
+		}
+		targetNickname := parts[1]
+		secretMessage := parts[2]
+
+		var targetConn net.Conn
+		mutex.Lock()
+		for c, name := range clients {
+			if name == targetNickname {
+				targetConn = c
+				break
+			}
+		}
+		mutex.Unlock()
+
+		if targetConn != nil {
+			fmt.Fprintf(targetConn, "[Privado de %s]: %s\n", nickname, secretMessage)
+		} else {
+			fmt.Fprintln(conn, "El usuario no se encuentra en la sala")
+		}
+	default:
+		fmt.Fprintln(conn, "Comando desconocido. Usa /list o /msg")
 	}
 }
 
